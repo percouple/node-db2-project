@@ -1,12 +1,41 @@
+const Yup = require('yup')
+const vinValidator = require('vin-validator');
+const Database = require('./cars-model');
+
+const payloadSchema = Yup.object().shape({
+  vin: Yup.string().required(),
+  make: Yup.string().required(),
+  model: Yup.string().required(),
+  mileage: Yup.string().required(),
+  title: Yup.string(),
+  transmission: Yup.string(),
+})
+
+const getFirstWordOfError = (message) => {
+  return message.split(' ')[0];  
+}
 
 // `checkCarId` returns a status 404 with a 
 // `{ message: "car with id <car id> is not found" }` 
 // if the id in `req.params` does not exist in the database.
 
-const checkCarId = (req, res, next) => {
+const checkCarId = async (req, res, next) => {
   // DO YOUR MAGIC
-  console.log("checkCarId Middleware Running")
-  next();
+  const id = req.params.id;
+  req.errStatus = 404;
+  req.errMessage = `car with id ${id} is not found`;
+  await Database.getById(id)
+    .then((result) => {
+      if (result.length === 0) {
+        req.errStatus = 404;
+        req.errMessage = `car with id ${id} is not found`;
+        throw Error;
+      }
+      req.payload = result;
+      req.carId = id;
+      next();
+    })
+    .catch(next)
 }
 
 // `checkCarPayload` returns a status 400 with a 
@@ -15,8 +44,15 @@ const checkCarId = (req, res, next) => {
 
 const checkCarPayload = (req, res, next) => {
   // DO YOUR MAGIC
-  console.log("checkCarPayload Middleware Running")
-  next();
+  payloadSchema.validate(req.body)
+    .then((validatedData) => {
+      next(); 
+    })
+    .catch((err) => {
+      req.errStatus = 400;
+      req.errMessage = `${getFirstWordOfError(err.errors[0])} is missing`;
+      next(err);
+    })
 }
 
 // `checkVinNumberValid` returns a status 400 with a 
@@ -27,17 +63,38 @@ const checkCarPayload = (req, res, next) => {
 const checkVinNumberValid = (req, res, next) => {
   // DO YOUR MAGIC
   console.log("checkVinNumberValid Middleware Running")
-  next();
+  const isValid = vinValidator.validate(req.body.vin);
+  if (isValid) {
+    next();
+  } else {
+    const error = new Error;
+    req.errStatus = 400;
+    req.errMessage = `vin ${req.body.vin} is invalid`; 
+    next(error);
+  }
 }
 
 // `checkVinNumberUnique` returns a status 400 with a 
 // `{ message: "vin <vin number> already exists" }` 
 // if the vin number already exists in the database.
 
-const checkVinNumberUnique = (req, res, next) => {
+const checkVinNumberUnique = async (req, res, next) => {
   // DO YOUR MAGIC
-  console.log("checkVinNumberUnique Middleware Running")
-  next();
+  console.log("checkVinNumberUnique Middleware Running");
+  const vin = req.body.vin;
+  await Database.getAll()
+    .then((result) => {
+      result.forEach((car) => {
+        if (car.vin === vin) {
+          const error = new Error;
+          req.errStatus = 400;
+          req.errMessage = `vin ${req.body.vin} already exists`; 
+          next(error);
+        }
+      })
+      next();
+    })
+    .catch(next)
 }
 
 module.exports = { 
